@@ -262,7 +262,7 @@ function preload() {
             img.loadPixels();
             for (let i = 0; i < img.width; i++) {
                 for (let j = 0; j < img.height; j++) {
-                    img.set(i, j, color(30, 41, 59));
+                    img.set(i, j, color(248, 250, 252));
                 }
             }
             img.updatePixels();
@@ -301,23 +301,46 @@ function resetSketch() {
 
     // Clone original data since mutates happen
     dat = [...originalDat];
-    let ymax = 0;
+
+    // Apply responsive full screen scaling and centering
+    let baseWidth = 240;
+    let baseHeight = 400;
+
+    // Padding for breathable full screen design
+    let paddingX = width * 0.1;
+    let paddingY = height * 0.15;
+
+    let scaleX = (width - paddingX) / baseWidth;
+    let scaleY = (height - paddingY) / baseHeight;
+    let customScale = min(scaleX, scaleY);
 
     for (let idx = 0; idx < dat.length; ++idx) {
-        dat[idx] *= 1.07;
+        dat[idx] *= 1.07 * customScale;
     }
 
+    let minX = Infinity;
+    let maxX = -Infinity;
     for (let idx = 0; idx < dat.length; idx += 4) {
-        dat[idx + 1] = height - dat[idx + 1] - dat[idx + 3] - 20;
-        dat[idx] += 20;
-        let y = dat[idx + 1] + dat[idx + 3];
-        ymax = max(y, ymax);
+        let x = dat[idx];
+        let w = dat[idx + 2];
+        if (x < minX) minX = x;
+        if (x + w > maxX) maxX = x + w;
+    }
+
+    let stackWidth = maxX - minX;
+    let offsetX = (width - stackWidth) / 2 - minX;
+    let gapFloor = paddingY / 2;
+
+    for (let idx = 0; idx < dat.length; idx += 4) {
+        // Position relative to floor
+        dat[idx + 1] = height - dat[idx + 1] - dat[idx + 3] - gapFloor;
+        dat[idx] += offsetX;
     }
 
     rects = [];
 
     // Create a "ground plane" at the bottom centre of the canvas
-    ground = createRect(width / 2, height, width, 2 * 31.535);
+    ground = createRect(width / 2, height - gapFloor + 50, width * 2, 100);
     Matter.Body.setStatic(ground.body, true);
 
     for (let idx = 0; idx < dat.length; idx += 4) {
@@ -366,7 +389,23 @@ function setup() {
 }
 
 function draw() {
-    image(img, 0, 0, width, height);
+    clear();
+
+    // Draw background image imitating 'object-fit: cover'
+    if (img) {
+        let imgRatio = img.width / img.height;
+        let canvasRatio = width / height;
+        let dw = width, dh = height, dx = 0, dy = 0;
+
+        if (imgRatio > canvasRatio) {
+            dw = height * imgRatio;
+            dx = (width - dw) / 2;
+        } else {
+            dh = width / imgRatio;
+            dy = (height - dh) / 2;
+        }
+        image(img, dx, dy, dw, dh);
+    }
 
     Matter.Engine.update(engine);
 
@@ -384,8 +423,8 @@ function draw() {
 
     rectMode(CORNER);
     noFill();
-    strokeWeight(4);
-    stroke(100); // subtle border around the canvas instead of black on black
+    strokeWeight(2);
+    stroke(200); // lighter border more suitable without dark background
     rect(0, 0, width, height);
 }
 
