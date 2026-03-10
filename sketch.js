@@ -252,6 +252,7 @@ let canvas;
 let rects;
 let ground;
 let mouseConstraint;
+let floorY = 0;
 
 function preload() {
     img = loadImage("dependency_2x.png",
@@ -270,18 +271,24 @@ function preload() {
     );
 }
 
+const palettes = [
+    { c1: '#FF3366', c2: '#FF9933', dark: '#990022' }, // Pink-Orange
+    { c1: '#00C9FF', c2: '#92FE9D', dark: '#005577' }, // Cyan-Green
+    { c1: '#7F00FF', c2: '#E100FF', dark: '#330066' }, // Purple-Pink
+    { c1: '#FEE140', c2: '#FA709A', dark: '#884400' }, // Yellow-Pink
+    { c1: '#00DBDE', c2: '#FC00FF', dark: '#004455' }  // Teal-Magenta
+];
+
 // This sketch will use only rectangles.
 function createRect(x, y, w, h) {
     const newBody = Matter.Bodies.rectangle(x, y, w, h);
     Matter.Composite.add(engine.world, newBody);
 
-    colorMode(HSB, 255);
-
     return {
         body: newBody,
         w: w,
         h: h,
-        fillColour: color(random(255), 150, 255),
+        theme: random(palettes)
     };
 }
 
@@ -330,6 +337,7 @@ function resetSketch() {
     let stackWidth = maxX - minX;
     let offsetX = (width - stackWidth) / 2 - minX;
     let gapFloor = paddingY / 2;
+    floorY = height - gapFloor;
 
     for (let idx = 0; idx < dat.length; idx += 4) {
         // Position relative to floor
@@ -388,6 +396,61 @@ function setup() {
     resetSketch();
 }
 
+function drawBox(re, isReflection) {
+    let w = re.w;
+    let h = re.h;
+    let depth = 8; // 3D extrusion pseudo-depth
+
+    // Draw 3D side face for depth illusion
+    if (!isReflection) {
+        noStroke();
+        fill(re.theme.dark);
+        push();
+        translate(depth, depth);
+        rect(-w / 2, -h / 2, w, h, 6);
+        pop();
+    }
+
+    // Front face with gradient
+    let grad = drawingContext.createLinearGradient(-w / 2, -h / 2, w / 2, h / 2);
+    grad.addColorStop(0, re.theme.c1);
+    grad.addColorStop(1, re.theme.c2);
+
+    drawingContext.fillStyle = grad;
+
+    // Outer glow / shadow
+    if (!isReflection) {
+        drawingContext.shadowBlur = 15;
+        drawingContext.shadowColor = "rgba(0,0,0,0.4)";
+        drawingContext.shadowOffsetY = 8;
+        drawingContext.shadowOffsetX = 4;
+    } else {
+        drawingContext.shadowBlur = 0;
+        drawingContext.shadowColor = "transparent";
+    }
+
+    stroke(255, 255, 255, 120); // Glassy highlight border
+    strokeWeight(1.5);
+    rect(-w / 2, -h / 2, w, h, 6);
+
+    // Clear shadow for internal highlight
+    drawingContext.shadowBlur = 0;
+    drawingContext.shadowColor = "transparent";
+    drawingContext.shadowOffsetY = 0;
+    drawingContext.shadowOffsetX = 0;
+
+    // Specular highlight (Glass reflection)
+    noStroke();
+    fill(255, 255, 255, 60);
+    beginShape();
+    vertex(-w / 2 + 2, -h / 2 + 6);
+    quadraticVertex(-w / 2 + 2, -h / 2 + 2, -w / 2 + 6, -h / 2 + 2);
+    lineTo(w / 2 - 6, -h / 2 + 2);
+    quadraticVertex(w / 2 - 2, -h / 2 + 2, w / 2 - 2, -h / 2 + 6);
+    bezierVertex(w / 2 - 2, -h / 4, -w / 2 + 2, 0, -w / 2 + 2, -h / 2 + 6);
+    endShape(CLOSE);
+}
+
 function draw() {
     clear();
 
@@ -409,22 +472,88 @@ function draw() {
 
     Matter.Engine.update(engine);
 
-    strokeWeight(2);
-    fill(225);
+    // Floor rendering
+    noStroke();
+    let floorGrad = drawingContext.createLinearGradient(0, floorY, 0, height);
+    floorGrad.addColorStop(0, "rgba(20, 20, 30, 0.7)");
+    floorGrad.addColorStop(1, "rgba(5, 5, 10, 0.95)");
+    drawingContext.fillStyle = floorGrad;
+    rect(0, floorY, width, height - floorY);
+
+    // Glossy floor line
+    stroke(255, 255, 255, 40);
+    strokeWeight(1);
+    line(0, floorY, width, floorY);
+
     rectMode(CENTER);
 
+    // Dynamic ground shadows
+    noStroke();
+    for (let re of rects) {
+        let x = re.body.position.x;
+        let y = re.body.position.y;
+
+        // Calculate distance from bottom of object to floor
+        let distToFloor = floorY - y - re.h / 2;
+        if (distToFloor > -re.h) {
+            let maxDist = height * 0.8;
+            let intensity = map(constrain(distToFloor, 0, maxDist), 0, maxDist, 180, 0);
+            let sWidth = re.w + map(constrain(distToFloor, 0, maxDist), 0, maxDist, 0, re.w * 1.5);
+            let sHeight = map(constrain(distToFloor, 0, maxDist), 0, maxDist, 8, 30);
+
+            fill(0, 0, 0, intensity);
+            ellipse(x + distToFloor * 0.1, floorY, sWidth, sHeight);
+        }
+    }
+
+    // Floor reflections
+    push();
+    drawingContext.save();
+    // Clip drawing area to below the floor
+    drawingContext.beginPath();
+    drawingContext.rect(0, floorY, width, height - floorY);
+    drawingContext.clip();
+
+    for (let re of rects) {
+        let x = re.body.position.x;
+        let y = re.body.position.y;
+        let angle = re.body.angle;
+
+        let reflectedY = floorY + (floorY - y);
+
+        push();
+        translate(x, reflectedY);
+        scale(1, -1);
+        rotate(angle);
+
+        // Opacity for reflection
+        let distCenter = floorY - y;
+        drawingContext.globalAlpha = map(abs(distCenter), 0, height / 2, 0.6, 0);
+        if (drawingContext.globalAlpha > 0) {
+            drawBox(re, true);
+        }
+        pop();
+    }
+    drawingContext.restore();
+    pop();
+
+    // Reset alpha for regular objects
+    drawingContext.globalAlpha = 1.0;
+
+    // Draw main objects
     for (let re of rects) {
         push();
         translate(re.body.position.x, re.body.position.y);
         rotate(re.body.angle);
-        rect(0, 0, re.w, re.h, 2);
+        drawBox(re, false);
         pop();
     }
 
     rectMode(CORNER);
     noFill();
     strokeWeight(2);
-    stroke(200); // lighter border more suitable without dark background
+    // Dark animated border maybe? Removed lighter border that looks bad, make it sleek.
+    stroke(255, 255, 255, 30);
     rect(0, 0, width, height);
 }
 
